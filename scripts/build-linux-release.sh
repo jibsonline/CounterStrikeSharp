@@ -203,10 +203,24 @@ if [[ "$PUBLISH" == "1" ]]; then
     command -v gh >/dev/null 2>&1 || die "gh CLI not found; install it or drop --publish and upload manually."
     gh auth status >/dev/null 2>&1 || die "gh CLI is not authenticated; run 'gh auth login' first."
 
-    REPO_FLAG=()
-    if [[ -n "${RELEASE_REPO:-}" ]]; then
-        REPO_FLAG=(--repo "$RELEASE_REPO")
+    # Derive the target repo from the 'origin' remote unless the caller
+    # overrode it. gh's own auto-detection refuses to pick a default when it
+    # sees a remote it doesn't consider canonical, so we always pass --repo
+    # explicitly to avoid the "No default remote repository" error.
+    if [[ -z "${RELEASE_REPO:-}" ]]; then
+        origin_url="$(git config --get remote.origin.url 2>/dev/null || true)"
+        case "$origin_url" in
+            git@github.com:*)      RELEASE_REPO="${origin_url#git@github.com:}" ;;
+            https://github.com/*)  RELEASE_REPO="${origin_url#https://github.com/}" ;;
+            ssh://git@github.com/*) RELEASE_REPO="${origin_url#ssh://git@github.com/}" ;;
+            *) die "Cannot derive owner/repo from origin URL '$origin_url'. Set RELEASE_REPO=owner/repo and retry." ;;
+        esac
+        RELEASE_REPO="${RELEASE_REPO%.git}"
+        log "Publishing to $RELEASE_REPO (derived from origin)"
+    else
+        log "Publishing to $RELEASE_REPO (from RELEASE_REPO env)"
     fi
+    REPO_FLAG=(--repo "$RELEASE_REPO")
 
     BUILD_HOST="$(hostname)"
     BUILD_TS="$(date -u +%FT%TZ)"
